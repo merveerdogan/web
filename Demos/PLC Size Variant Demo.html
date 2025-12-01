@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>PLC Size Variation Demo (Position + Size)</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: sans-serif;
+        }
+
+        #controls {
+            flex: 0 0 300px;
+            background: #1b1b1b;
+            padding: 1em;
+            box-sizing: border-box;
+            overflow-y: auto;
+            border-right: 2px solid #333;
+        }
+
+        #controls h3 {
+            margin: 0 0 .5em 0;
+            color: #ddd;
+        }
+
+        label {
+            display: block;
+            margin-top: 1em;
+            font-size: 14px;
+        }
+
+        input[type=range],
+        input[type=number] {
+            width: 100%;
+        }
+
+        #myCanvas {
+            flex: 1;
+            background: #000;
+        }
+
+        .value-display {
+            float: right;
+            font-size: 12px;
+            color: #aaa;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 1em;
+            padding: .6em;
+            background: #333;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #444;
+        }
+
+        #hud {
+            position: fixed;
+            left: 310px;
+            bottom: 8px;
+            background: rgba(0, 0, 0, .45);
+            padding: .4em .6em;
+            border-radius: 6px;
+            font-size: 12px;
+            line-height: 1.3;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="controls">
+        <h3>PLC Size Variation Demo</h3>
+        <label>
+            ISI Mode
+            <select id="isiMode">
+                <option value="none">None</option>
+                <option value="blank">Blank</option>
+                <option value="hold">Hold</option>
+            </select>
+        </label>
+        <label>
+            Movement Mode
+            <select id="moveMode">
+                <option value="radius">Random (within radius)</option>
+                <option value="step">Step-based (within area)</option>
+            </select>
+        </label>
+
+        <label>Step Size (px) <span id="stepSizeVal" class="value-display">5</span>
+            <input type="range" id="stepSize" min="1" max="100" step="1" value="5">
+        </label>
+        <label>Center Movement (px radius) <span id="moveVal" class="value-display">10</span>
+            <input type="range" id="move" min="0" max="300" step="1" value="10">
+        </label>
+        <label>Frame Duration (ms) <span id="frameDurVal" class="value-display">100</span>
+            <input type="range" id="frameDur" min="10" max="300" step="10" value="100">
+        </label>
+        <label>
+            ISI (ms) <span id="isiVal" class="value-display">0</span>
+            <input type="range" id="isi" min="0" max="1000" step="10" value="0">
+        </label>
+        <label>
+            ISI Mode
+            <select id="isiMode">
+                <option value="none">None</option>
+                <option value="blank">Blank</option>
+                <option value="hold">Hold</option>
+            </select>
+        </label>
+        <label>Dot Size (px) <span id="dotSizeVal" class="value-display">3</span>
+            <input type="range" id="dotSize" min="1" max="100" step="1" value="3">
+        </label>
+        <label>Min Size (deg) <span id="minDegVal" class="value-display">1.6</span>
+            <input type="range" id="minDeg" min="0.5" max="10" step="0.1" value="1.6">
+        </label>
+        <label>Max Size (deg) <span id="maxDegVal" class="value-display">7.3</span>
+            <input type="range" id="maxDeg" min="2" max="15" step="0.1" value="7.3">
+        </label>
+        <label>Log Step Factor <span id="stepVal" class="value-display">1.75</span>
+            <input type="range" id="logStep" min="1.0" max="3.0" step="0.05" value="1.75">
+        </label>
+        <label>Pixels per Degree (PPD) <span id="ppdVal" class="value-display">55</span>
+            <input type="range" id="ppd" min="10" max="150" step="5" value="55">
+        </label>
+        <label>FPS (data) <span id="fpsVal" class="value-display">60</span>
+            <input type="range" id="fps" min="10" max="200" step="1" value="60">
+        </label>
+        <button id="restart">Restart Demo</button>
+        <button id="pause">Pause / Resume</button>
+    </div>
+
+    <canvas id="myCanvas"></canvas>
+    <div id="hud">—</div>
+
+    <script src="helpers/plc_display_sizeVar_videoCreate.js"></script>
+    <script src="helpers/subset_m1_s00078125.json"></script>
+    <script>
+        /* ============================== */
+        const canvas = document.getElementById('myCanvas');
+        const ctx = canvas.getContext('2d');
+        const w = window.innerWidth - 300;
+        const h = window.innerHeight;
+        canvas.width = w; canvas.height = h;
+        const center0 = { x: w / 2, y: h / 2 };
+
+        // UI elements
+        const moveModeEl = document.getElementById('moveMode');
+        const stepSizeEl = document.getElementById('stepSize');
+        const stepAreaEl = document.getElementById('stepArea');
+        const stepSizeVal = document.getElementById('stepSizeVal');
+        const stepAreaVal = document.getElementById('stepAreaVal');
+        const moveEl = document.getElementById('move');
+        const frameDurEl = document.getElementById('frameDur');
+        const dotSizeEl = document.getElementById('dotSize');
+        const minDegEl = document.getElementById('minDeg');
+        const maxDegEl = document.getElementById('maxDeg');
+        const logStepEl = document.getElementById('logStep');
+        const ppdEl = document.getElementById('ppd');
+        const fpsEl = document.getElementById('fps');
+        const isiEl = document.getElementById('isi');
+        const isiVal = document.getElementById('isiVal');
+        const isiModeEl = document.getElementById('isiMode');
+        isiEl.addEventListener('input', () => isiVal.textContent = isiEl.value);
+
+        const moveVal = document.getElementById('moveVal'), frameDurVal = document.getElementById('frameDurVal'),
+            dotSizeVal = document.getElementById('dotSizeVal'), minDegVal = document.getElementById('minDegVal'),
+            maxDegVal = document.getElementById('maxDegVal'), stepVal = document.getElementById('stepVal'),
+            ppdVal = document.getElementById('ppdVal'), fpsVal = document.getElementById('fpsVal');
+
+        [stepSizeEl, moveEl, frameDurEl, dotSizeEl, minDegEl, maxDegEl, logStepEl, ppdEl, fpsEl].forEach(el => {
+            el.addEventListener('input', () => {
+                stepSizeVal.textContent = stepSizeEl.value;
+                moveVal.textContent = moveEl.value;
+                frameDurVal.textContent = frameDurEl.value;
+                dotSizeVal.textContent = dotSizeEl.value;
+                minDegVal.textContent = minDegEl.value;
+                maxDegVal.textContent = maxDegEl.value;
+                stepVal.textContent = logStepEl.value;
+                ppdVal.textContent = ppdEl.value;
+                fpsVal.textContent = fpsEl.value;
+                if (el === ppdEl) rebuildBaseGeometry();
+                if ([minDegEl, maxDegEl, logStepEl].includes(el)) recomputeLimits();
+            });
+        });
+
+        document.getElementById('pause').onclick = () => paused = !paused;
+        document.getElementById('restart').onclick = () => initDemo();
+
+        const rawData = (typeof subset_m1_s00078125 !== 'undefined') ? subset_m1_s00078125 : [];
+        let framesObj = {};
+        rawData.forEach(p => { if (!framesObj[p.frame]) framesObj[p.frame] = []; framesObj[p.frame].push(p); });
+        const frames = Object.values(framesObj);
+        const totalFrames = frames.length;
+
+        let baseX = [], baseY = [], baseDiagPerFrame = [], initialClothDiagPx = 1;
+        function bounds(xs, ys) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (let i = 0; i < xs.length; i++) { const x = xs[i], y = ys[i]; if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+            return { minX, maxX, minY, maxY };
+        }
+
+        function rebuildBaseGeometry() {
+            baseX = new Array(totalFrames); baseY = new Array(totalFrames); baseDiagPerFrame = new Array(totalFrames);
+            const ppd = parseFloat(ppdEl.value);
+            const f0 = frames[0]; let tmpX0 = [], tmpY0 = [];
+            for (let i = 0; i < f0.length; i++) { tmpX0[i] = f0[i].X * ppd; tmpY0[i] = -f0[i].Y * ppd; }
+            const b0 = bounds(tmpX0, tmpY0);
+            const dx0 = center0.x - ((b0.minX + b0.maxX) / 2), dy0 = center0.y - ((b0.minY + b0.maxY) / 2);
+            baseX[0] = [], baseY[0] = [];
+            for (let i = 0; i < f0.length; i++) { baseX[0][i] = tmpX0[i] + dx0; baseY[0][i] = tmpY0[i] + dy0; }
+            const b0c = bounds(baseX[0], baseY[0]);
+            initialClothDiagPx = Math.hypot(b0c.maxX - b0c.minX, b0c.maxY - b0c.minY);
+            baseDiagPerFrame[0] = initialClothDiagPx;
+            for (let f = 1; f < totalFrames; f++) {
+                const arr = frames[f]; baseX[f] = []; baseY[f] = [];
+                for (let i = 0; i < arr.length; i++) { baseX[f][i] = arr[i].X * ppd + dx0; baseY[f][i] = -arr[i].Y * ppd + dy0; }
+                const bf = bounds(baseX[f], baseY[f]); baseDiagPerFrame[f] = Math.hypot(bf.maxX - bf.minX, bf.maxY - bf.minY);
+            }
+            recomputeLimits();
+        }
+
+        let minScale = 1, maxScale = 1, logMin = 0, logMax = 0, logStepBase = Math.log(1.75);
+        function recomputeLimits() {
+            const minDeg = parseFloat(minDegEl.value), maxDeg = parseFloat(maxDegEl.value), ppd = parseFloat(ppdEl.value);
+            const minAbsPx = minDeg * ppd, maxAbsPx = maxDeg * ppd;
+            minScale = minAbsPx / initialClothDiagPx; maxScale = maxAbsPx / initialClothDiagPx;
+            if (maxScale < minScale) [minScale, maxScale] = [maxScale, minScale];
+            logMin = Math.log(minScale); logMax = Math.log(maxScale); logStepBase = Math.log(parseFloat(logStepEl.value));
+            if (currentSizeFactor < minScale) currentSizeFactor = minScale; if (currentSizeFactor > maxScale) currentSizeFactor = maxScale;
+            logScale = Math.log(currentSizeFactor);
+        }
+
+        let logScale = 0, currentSizeFactor = 1, directionSign = 1;
+        function updateSizeFactor() {
+            // 50% chance to flip direction each time
+            if (Math.random() < 0.5) directionSign *= -1;
+
+            let next = logScale + directionSign * logStepBase;
+
+            // Boundary handling with step-back inside range
+            if (next > logMax) {
+                directionSign = -1;
+                next = logMax - logStepBase;
+            } else if (next < logMin) {
+                directionSign = 1;
+                next = logMin + logStepBase;
+            }
+
+            logScale = next;
+            currentSizeFactor = Math.exp(logScale);
+        }
+
+        let cx = center0.x, cy = center0.y, lastOffset = { x: 0, y: 0 };
+        function randomOffset(r) { const a = Math.random() * 2 * Math.PI; const rr = Math.random() * r; return { x: Math.cos(a) * rr, y: Math.sin(a) * rr }; }
+        let stepX = 0, stepY = 0;
+
+        function updateCenter() {
+            const mode = moveModeEl.value;
+            if (mode === 'radius') {
+                // mode 1: random within radius
+                const moveR = parseFloat(moveEl.value);
+                lastOffset = randomOffset(moveR);
+                cx = center0.x + lastOffset.x;
+                cy = center0.y + lastOffset.y;
+            } else {
+                // mode 2: step-based random walk within area
+                const stepSize = parseFloat(stepSizeEl.value);
+                const maxRadius = parseFloat(moveEl.value);
+
+
+                // choose a random direction for each step
+                const angle = Math.random() * 2 * Math.PI;
+                const dx = Math.cos(angle) * stepSize;
+                const dy = Math.sin(angle) * stepSize;
+
+                // accumulate movement
+                cx += dx;
+                cy += dy;
+
+                // keep within allowed area around center0
+                const offsetX = cx - center0.x;
+                const offsetY = cy - center0.y;
+                const dist = Math.hypot(offsetX, offsetY);
+                if (dist > maxRadius) {
+                    // if out of bounds, push back toward center
+                    const scale = maxRadius / dist;
+                    cx = center0.x + offsetX * scale;
+                    cy = center0.y + offsetY * scale;
+                }
+
+                lastOffset = { x: cx - center0.x, y: cy - center0.y };
+            }
+        }
+
+        function drawFrame(fi) {
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = "#fff";
+            const Xs = baseX[fi], Ys = baseY[fi];
+            for (let i = 0; i < Xs.length; i++) {
+                const dx = Xs[i] - center0.x, dy = Ys[i] - center0.y;
+                const x = cx + dx * currentSizeFactor, y = cy + dy * currentSizeFactor;
+                ctx.beginPath(); ctx.arc(x, y, parseFloat(dotSizeEl.value), 0, 2 * Math.PI); ctx.fill();
+            }
+        }
+
+        let startTime = 0, lastScaleStepTime = 0, paused = false;
+        function initDemo() {
+            rebuildBaseGeometry();
+            startTime = performance.now(); lastScaleStepTime = startTime;
+            logScale = (logMin + logMax) / 2; currentSizeFactor = Math.exp(logScale); directionSign = 1; paused = false;
+            requestAnimationFrame(loop);
+        }
+
+        function loop(now) {
+            if (paused) { requestAnimationFrame(loop); return; }
+
+            const fps = parseFloat(fpsEl.value);
+            const clipDurSec = totalFrames / fps;
+            elapsedSec = (now - startTime) / 1000;
+            elapsedSec = elapsedSec > 0 ? elapsedSec : 0;
+            const percent = (elapsedSec / clipDurSec) % 1;
+            const fi = Math.floor(percent * totalFrames);
+
+            const frameDurMs = parseFloat(frameDurEl.value);
+            const isiMs = parseFloat(isiEl.value);
+            const mode = isiModeEl.value;
+
+            // update size and center only at frame transitions
+            if (now - lastScaleStepTime >= frameDurMs) {
+                updateSizeFactor();
+                updateCenter();
+                lastScaleStepTime = now;
+            }
+
+            const phase = (now - lastScaleStepTime);
+
+            if (mode === "blank" && phase < isiMs) {
+                // show blank
+                ctx.clearRect(0, 0, w, h);
+            } else if (mode === "hold" && phase < isiMs) {
+                // hold last frame (do nothing)
+            } else {
+                drawFrame(fi);
+            }
+
+            updateHUD(fi);
+            requestAnimationFrame(loop);
+        }
+
+        function updateHUD(fi) {
+            const ppd = parseFloat(ppdEl.value);
+            const diag0 = baseDiagPerFrame[fi];
+            const diagPx = currentSizeFactor * diag0;
+            const diagDeg = diagPx / ppd;
+            document.getElementById('hud').textContent =
+                `Center Offset: (${lastOffset.x.toFixed(1)}, ${lastOffset.y.toFixed(1)}) px | ` +
+                `Scale: ${currentSizeFactor.toFixed(3)} | Diag: ${diagDeg.toFixed(2)}° (min ${minDegEl.value}°, max ${maxDegEl.value}°)`;
+        }
+
+        initDemo();
+    </script>
+</body>
+
+</html>
